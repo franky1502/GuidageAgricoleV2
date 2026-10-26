@@ -369,6 +369,8 @@ btnB.addEventListener("click", () => {
         return;
     }
 
+// simulateur ...
+
     const capTest = 269;
 
 const angleRad =
@@ -779,8 +781,18 @@ ecartTexte.style.left = "50%";
 
 }
 
+const messageGuidage =
+    modeGuidage === MODE_DEMI_TOUR
+        ? (sensDemiTour === DEMI_TOUR_DROITE
+            ? "Demi-tour droit"
+            : "Demi-tour gauche")
+        : modeGuidage === MODE_RACCROCHAGE
+            ? "Raccrochage"
+            : "Ligne cible";
+
 document.getElementById("etatReference").textContent =
-    "Ligne cible " + ligneCible +
+    messageGuidage +
+    " — " + ligneCible +
     " | DistTrac=" + distanceTracteur.toFixed(1) +
     " | DistCible=" + distanceCible.toFixed(1) +
     " | Bleu=" + restantDemiTour.toFixed(1) + " m";
@@ -1782,12 +1794,6 @@ if (
             ligneCible =
                 ligne + sensDemiTour;
         }
-
-        document.getElementById("etatReference").textContent =
-            (sensDemiTour === DEMI_TOUR_DROITE
-                ? "Demi-tour droit"
-                : "Demi-tour gauche")
-            + " — ligne cible " + ligneCible;
 
         afficher();
 
