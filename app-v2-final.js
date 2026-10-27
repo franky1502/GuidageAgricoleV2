@@ -1,0 +1,2499 @@
+/*
+ * GUIDAGE AGRICOLE GPS — V2 GPS réel uniquement
+ * Base : app.js fourni par l'utilisateur.
+ * Les commandes de simulation ont été retirées.
+ * Architecture introduite : calculerGuidage() / afficher().
+ * Vérifier avec le HTML de l'application, dont les identifiants DOM doivent correspondre.
+ */
+
+let ligne = 0;
+
+let tracteurX = 14;
+let tracteurY = 10;
+
+let premierePasse = 14;
+let largeurTravail = 20;
+let modeReference = "bord";
+
+let ecart = 0;
+let ecartLigne = 0;
+
+let pointA = null;
+let pointB = null;
+
+let longueurAB = 0;
+let capAB = 0;
+
+let nombreMesures = 0;
+let sommeEcarts = 0;
+let sommeEcartsCarres = 0;
+let sigmaConduite = 0;
+
+
+let capTracteur = 0;
+
+
+let pauseX = 0;
+let pauseY = 0;
+
+let lignePause = 0;
+
+let distancePauseLigne = 0;
+
+let capPause = 0;
+
+const MODE_TRAVAIL = 0;
+const MODE_DEMI_TOUR = 1;
+const MODE_RACCROCHAGE = 2;
+const MODE_PAUSE = 3;
+
+let modeGuidage = MODE_TRAVAIL;
+let ligneCible = 0;
+
+let nombreCapsDemiTour = 0;
+const NB_CAPS_CONFIRMATION_DEMI_TOUR = 3;
+const SEUIL_CAP_DEMI_TOUR = 45;
+
+let sensCandidatDemiTour = 0;
+let capPrecedentDemiTour = null;
+let rotationCumuleeDemiTour = 0;
+const SEUIL_RACCROCHAGE = 1.00; // mètres
+
+
+let pointPauseRetrouve = false;
+
+const modeGPS = true;
+
+let latitudeOrigine = null;
+let longitudeOrigine = null;
+let nombrePointsGPS = 0;
+let pointsGPSAcceptes = [];
+
+
+/* Construction de la référence A-B en GPS réel */
+
+const NB_POINTS_DEPART_AB = 20;
+const VITESSE_DEPART_AB = 3.0; // km/h
+const DUREE_CONFIRMATION_AB_MS = 3000; // 3 secondes
+
+let etatConstructionAB = "REPOS";
+let debutVitesseAB = null;
+let pointsReferenceAB = [];
+
+
+const SEUIL_DISTANCE = 1.00;
+const SEUIL_REJET = 2.00;
+const VITESSE_MIN_DN = 3.0; // km/h
+const NB_POINTS_MIN_DN = 5;
+
+const historiqueGPS = [];  
+const NB_POINTS_REGRESSION = 10;
+const NB_POINTS_AFFICHAGE = 30;
+
+const DEMI_TOUR_DROITE = 1;
+const DEMI_TOUR_GAUCHE = -1;
+
+let sensDemiTour = DEMI_TOUR_DROITE;
+
+let pointDepartLigneGPS = null;
+
+const ligneMoins = document.getElementById("ligneMoins");
+const ligneActive = document.getElementById("ligneActive");
+const lignePlus = document.getElementById("lignePlus");
+
+const tracteur = document.getElementById("tracteur");
+const ecartTexte = document.getElementById("ecart");
+
+const btnA = document.getElementById("btnStartRef");
+const btnB = document.getElementById("btnStopRef");
+
+const textePointReprise =
+    pointPauseRetrouve
+        ? "✓ Point de reprise retrouvé"
+        : "⚠ Point de reprise non retrouvé";
+
+const texteSensReprise =
+    "✓ Sens de reprise correct";
+
+
+btnA.style.background = "#f3eb51";
+btnB.style.background = "#f3eb51";
+btnA.style.color = "black";
+btnB.style.color = "black";
+
+let distanceLigne;
+
+if (modeReference === "bord") {
+
+    if (ligne === 0) {
+
+        distanceLigne = 0;
+
+    } else {
+
+        distanceLigne =
+            premierePasse +
+            (ligne - 1) * largeurTravail;
+    }
+
+}
+else {
+
+    distanceLigne =
+        ligne * largeurTravail;
+}
+
+document.getElementById("btnPlus").addEventListener("click", () => {
+
+    ligne++;
+    reinitialiserSigma();
+    calculerGuidage();
+    afficher();
+});
+
+document.getElementById("btnMoins").addEventListener("click", () => {
+
+    if (modeReference === "bord") {
+
+        if (ligne > 0) {
+            ligne--;
+        }
+
+    } else {
+
+        ligne--;
+
+    }
+    reinitialiserSigma();
+    calculerGuidage();
+    afficher();
+});
+
+
+btnA.addEventListener("click", () => {
+
+    // V2 GPS réel : vérifier les positions disponibles
+    if (historiqueGPS.length < NB_POINTS_DEPART_AB) {
+
+        document.getElementById("etatReference").textContent =
+            "Attendre 20 points GPS avant de définir A";
+
+        return;
+    }
+
+    // Calculer le barycentre des 20 dernières positions GPS
+    const derniersPoints =
+        historiqueGPS.slice(-NB_POINTS_DEPART_AB);
+
+    const sommeX = derniersPoints.reduce(
+        (somme, point) => somme + point.x, 0
+    );
+
+    const sommeY = derniersPoints.reduce(
+        (somme, point) => somme + point.y, 0
+    );
+
+    pointA = {
+        x: sommeX / derniersPoints.length,
+        y: sommeY / derniersPoints.length
+    };
+
+    // Préparer la construction de la référence
+    pointsReferenceAB = [];
+    debutVitesseAB = null;
+    etatConstructionAB = "ATTENTE_VITESSE";
+
+    document.getElementById("etatReference").textContent =
+        "Point A enregistré — attente de vitesse ≥ 3 km/h";
+
+    btnA.style.background = "#00aa00";
+    btnA.style.color = "white";
+    btnB.style.background = "#ff9800";
+    btnB.style.color = "black";
+
+});
+
+
+
+btnB.addEventListener("click", () => {
+
+    
+    // V2 GPS réel : terminer la construction de A-B
+    if (modeGPS) {
+
+        if (etatConstructionAB !== "ENREGISTREMENT") {
+            document.getElementById("etatReference").textContent =
+                "Trajet non enregistré : attendre le démarrage GPS";
+
+            return;
+        }
+
+        if (pointsReferenceAB.length < 5) {
+            document.getElementById("etatReference").textContent =
+                "Pas assez de points GPS pour calculer A-B";
+
+            return;
+        }
+
+        // Ajuster une droite à tous les points du trajet
+        const trajectoireAB =
+            calculerTrajectoireDn(pointsReferenceAB);
+
+        if (!trajectoireAB) {
+            document.getElementById("etatReference").textContent =
+                "Impossible de calculer la référence A-B";
+
+            return;
+        }
+
+        // Projeter les points sur la droite ajustée
+        let projectionMin = Infinity;
+        let projectionMax = -Infinity;
+        let sommeDistances = 0;
+        let distancesSignees = [];
+
+        for (const point of pointsReferenceAB) {
+
+            const dx = point.x - trajectoireAB.x;
+            const dy = point.y - trajectoireAB.y;
+
+            const projection =
+                dx * trajectoireAB.vx +
+                dy * trajectoireAB.vy;
+
+            projectionMin = Math.min(projectionMin, projection);
+            projectionMax = Math.max(projectionMax, projection);
+
+            const distanceSignee =
+                dx * trajectoireAB.vy -
+                dy * trajectoireAB.vx;
+
+            distancesSignees.push(distanceSignee);
+            sommeDistances += distanceSignee;
+        }
+
+        // Définir A et B aux extrémités projetées du trajet
+        pointA = {
+            x: trajectoireAB.x + projectionMin * trajectoireAB.vx,
+            y: trajectoireAB.y + projectionMin * trajectoireAB.vy
+        };
+
+        pointB = {
+            x: trajectoireAB.x + projectionMax * trajectoireAB.vx,
+            y: trajectoireAB.y + projectionMax * trajectoireAB.vy
+        };
+
+        longueurAB = projectionMax - projectionMin;
+
+        // Calculer le cap de la référence
+        const angleMath =
+            Math.atan2(
+                pointB.y - pointA.y,
+                pointB.x - pointA.x
+            ) * 180 / Math.PI;
+
+        capAB = 90 - angleMath;
+
+        if (capAB < 0) capAB += 360;
+        if (capAB >= 360) capAB -= 360;
+
+        // Calculer l'écart-type des distances à la droite
+        const moyenneDistances =
+            sommeDistances / distancesSignees.length;
+
+        let sommeCarresDistances = 0;
+
+        for (const distance of distancesSignees) {
+            sommeCarresDistances +=
+                (distance - moyenneDistances) ** 2;
+        }
+
+        const sigmaAB = Math.sqrt(
+            sommeCarresDistances / distancesSignees.length
+        );
+
+        // Terminer l'enregistrement
+        etatConstructionAB = "TERMINE";
+
+        btnA.style.background = "#00aa00";
+        btnA.style.color = "white";
+        btnB.style.background = "#00aa00";
+        btnB.style.color = "white";
+
+        document.getElementById("etatReference").textContent =
+            "Référence GPS calculée | " +
+            pointsReferenceAB.length + " points | " +
+            longueurAB.toFixed(1) + " m | Cap : " +
+            capAB.toFixed(1) + "° | σAB : " +
+            sigmaAB.toFixed(2) + " m";
+
+        reinitialiserSigma();
+        calculerGuidage();
+        afficher();
+
+        return;
+    }
+
+    // La référence A-B est exclusivement construite à partir du GPS réel.
+
+});
+
+const inputPremierePasse = document.getElementById("inputPremierePasse");
+const inputLargeurTravail = document.getElementById("inputLargeurTravail");
+
+inputPremierePasse.addEventListener("change", () => {
+    const valeur = Number(inputPremierePasse.value);
+    if (Number.isFinite(valeur) && valeur >= 0) {
+        premierePasse = valeur;
+        calculerGuidage();
+        afficher();
+    }
+});
+
+inputLargeurTravail.addEventListener("change", () => {
+    const valeur = Number(inputLargeurTravail.value);
+    if (Number.isFinite(valeur) && valeur > 0) {
+        largeurTravail = valeur;
+        calculerGuidage();
+        afficher();
+    }
+});
+
+document
+.querySelectorAll('input[name="modeRef"]')
+.forEach(radio => {
+
+    radio.addEventListener("change", () => {
+
+        modeReference = radio.value;
+        calculerGuidage();
+        afficher();
+    });
+
+});
+
+const btnPause =
+    document.getElementById("btnPause");
+
+const btnReprendre =
+    document.getElementById("btnReprendre");
+
+btnPause.addEventListener("click", () => {
+
+    pauseX = tracteurX;
+    pauseY = tracteurY;
+
+    lignePause = ligne;
+
+    distancePauseLigne =
+        avancementAB(
+            tracteurX,
+            tracteurY
+        );
+
+    capPause = capTracteur;
+
+    modeGuidage = MODE_PAUSE;
+
+    afficherEtatReference();
+    calculerGuidage();
+    afficher();
+});
+
+btnReprendre.addEventListener("click", () => {
+
+    if (!pointPauseRetrouve) {
+
+        alert(
+            "Revenir au point de pause"
+        );
+
+        return;
+    }
+
+    modeGuidage = MODE_TRAVAIL;
+
+    btnReprendre.classList.remove(
+        "clignote"
+    );
+
+    afficherEtatReference();
+    calculerGuidage();
+    afficher();
+});
+
+
+
+
+
+// Valeurs calculées par le moteur de guidage et consommées par l'affichage.
+let distanceTracteurCourante = 0;
+let distanceCibleCourante = 0;
+let restantDemiTour = 0;
+
+function calculerGuidage() {
+    if (!pointA || !pointB) return;
+
+    const distanceLigneCourante = calculerDistanceLigne(ligne);
+    distanceTracteurCourante = distanceSigneeAB(tracteurX, tracteurY);
+    ecartLigne = distanceTracteurCourante - distanceLigneCourante;
+    distanceCibleCourante = calculerDistanceLigne(ligneCible);
+    restantDemiTour = Math.abs(distanceCibleCourante - distanceTracteurCourante);
+
+    if (modeGuidage === MODE_TRAVAIL) {
+        nombreMesures++;
+        sommeEcarts += ecartLigne;
+        sommeEcartsCarres += ecartLigne * ecartLigne;
+        const moyenne = sommeEcarts / nombreMesures;
+        sigmaConduite = Math.sqrt(Math.max(0, sommeEcartsCarres / nombreMesures - moyenne * moyenne));
+
+        if (pointDepartLigneGPS !== null) {
+            const dx = tracteurX - pointDepartLigneGPS.x;
+            const dy = tracteurY - pointDepartLigneGPS.y;
+            document.getElementById("avancement").textContent = Math.hypot(dx, dy).toFixed(0) + " m";
+        }
+    }
+
+    if (modeGuidage === MODE_DEMI_TOUR && restantDemiTour < 4) {
+        modeGuidage = MODE_RACCROCHAGE;
+    }
+
+    if (modeGuidage === MODE_RACCROCHAGE && restantDemiTour < SEUIL_RACCROCHAGE) {
+        modeGuidage = MODE_TRAVAIL;
+        ligne = ligneCible;
+        pointDepartLigneGPS = { x: tracteurX, y: tracteurY };
+        capTracteur = capAB;
+        ecartLigne = 0;
+        reinitialiserSigma();
+    }
+}
+
+function afficher() {
+    
+
+
+if (sensDemiTour === DEMI_TOUR_DROITE) {
+
+    if (modeReference === "bord" && ligne === 0) {
+
+        ligneMoins.textContent = "";
+
+    } else {
+
+        ligneMoins.textContent = ligne - 1;
+
+    }
+
+    ligneActive.textContent = ligne;
+    lignePlus.textContent = ligne + 1;
+
+}
+else {
+
+    ligneMoins.textContent = ligne + 1;
+    ligneActive.textContent = ligne;
+
+    if (modeReference === "bord" && ligne === 0) {
+
+        lignePlus.textContent = "";
+
+    } else {
+
+        lignePlus.textContent = ligne - 1;
+
+    }
+
+}
+
+    let distanceLigneCourante;
+
+if (modeReference === "bord") {
+
+    if (ligne === 0) {
+
+        distanceLigneCourante = 0;
+
+    } else {
+
+        distanceLigneCourante =
+            premierePasse +
+            (ligne - 1) * largeurTravail;
+    }
+
+}
+else {
+
+    distanceLigneCourante =
+        ligne * largeurTravail;
+}
+
+    const distanceMoins =
+    distanceLigneCourante - largeurTravail;
+
+const distancePlus =
+    distanceLigneCourante + largeurTravail;
+
+
+if (sensDemiTour === DEMI_TOUR_DROITE) {
+
+    // Ordre normal
+    if (modeReference === "bord" && ligne === 0) {
+
+        document.getElementById("distanceMoins").textContent = "";
+
+    } else {
+
+        document.getElementById("distanceMoins").textContent =
+            distanceMoins.toFixed(0) + " m";
+    }
+
+    document.getElementById("distanceActive").textContent =
+        distanceLigneCourante.toFixed(0) + " m";
+
+    document.getElementById("distancePlus").textContent =
+        distancePlus.toFixed(0) + " m";
+
+}
+else {
+
+    // Ordre inversé
+    document.getElementById("distanceMoins").textContent =
+        distancePlus.toFixed(0) + " m";
+
+    document.getElementById("distanceActive").textContent =
+        distanceLigneCourante.toFixed(0) + " m";
+
+    if (modeReference === "bord" && ligne === 0) {
+
+        document.getElementById("distancePlus").textContent = "";
+
+    } else {
+
+        document.getElementById("distancePlus").textContent =
+            distanceMoins.toFixed(0) + " m";
+    }
+
+}
+
+    if (pointA && pointB) {
+        const messageGuidage =
+            modeGuidage === MODE_DEMI_TOUR
+                ? (sensDemiTour === DEMI_TOUR_DROITE ? "Demi-tour droit" : "Demi-tour gauche")
+                : modeGuidage === MODE_RACCROCHAGE
+                    ? "Raccrochage"
+                    : modeGuidage === MODE_PAUSE
+                        ? "Pause"
+                        : "Travail";
+
+        document.getElementById("etatReference").textContent =
+            messageGuidage + " — ligne cible " + ligneCible +
+            " | DistTrac=" + distanceTracteurCourante.toFixed(1) +
+            " | DistCible=" + distanceCibleCourante.toFixed(1) +
+            " | Restant=" + restantDemiTour.toFixed(1) + " m";
+    }
+
+    document.getElementById("debugEcart").textContent =
+        "Écart = " + ecartLigne.toFixed(2) + " m";
+    
+    const centre = 50;
+
+  
+document.getElementById("sigma").textContent =
+    "σ = " +
+    sigmaConduite.toFixed(2) +
+    " m";
+
+// Saturation visuelle à ±3 m
+const ecartAffichage = Math.max(-3, Math.min(3, ecartLigne));
+
+// 3 m = 35 % de déplacement visuel
+const decalage = (ecartAffichage / 3) * 35;
+
+const positionTracteur = centre + decalage;
+
+tracteur.style.left = positionTracteur + "%";
+
+    if (Math.abs(ecartLigne) < 0.2) {
+
+        document.getElementById("imageTracteur").src = "tracteur_vert.svg";
+
+        ecartTexte.innerHTML = "";
+
+    }
+    else {
+
+        const erreur = Math.abs(ecartLigne);
+
+if (erreur < 1) {
+
+    document.getElementById("imageTracteur").src = "tracteur_orange.svg";
+    ecartTexte.style.color = "orange";
+    ecartTexte.style.fontSize = "28px";
+    ecartTexte.style.top = "195px";
+}
+else if (erreur <= 3) {
+
+    document.getElementById("imageTracteur").src = "tracteur_rouge.svg";
+    ecartTexte.style.color = "#cc0000";
+    ecartTexte.style.fontSize = "28px";
+    ecartTexte.style.top = "195px";
+}
+else {
+
+    document.getElementById("imageTracteur").src = "tracteur_rouge.svg";
+    ecartTexte.style.color = "#ff0000";
+    ecartTexte.style.fontSize = "42px";
+    ecartTexte.style.fontWeight = "900";
+    ecartTexte.style.top = "160px";
+}
+
+let positionTexte;
+
+if (ecartLigne > 0) {
+
+    positionTexte = positionTracteur - 10;
+
+}
+else {
+
+    positionTexte = positionTracteur - 2;
+
+}
+
+positionTexte = Math.max(5, Math.min(68, positionTexte));
+
+ecartTexte.style.left = positionTexte + "%";
+
+        if (ecartLigne > 0) {
+
+            ecartTexte.innerHTML =
+                "← " + ecartLigne.toFixed(2) + " m";
+        }
+        else {
+
+            ecartTexte.innerHTML =
+                Math.abs(ecartLigne).toFixed(2) + " m →";
+        }
+    }
+
+if (
+    modeGuidage === MODE_DEMI_TOUR ||
+    modeGuidage === MODE_RACCROCHAGE
+
+    ) {
+
+    tracteur.style.width = "30px";
+    tracteur.style.height = "60px";
+    tracteur.style.top = "80px";
+    tracteur.classList.toggle(
+    "axe-visible",
+    modeGuidage === MODE_RACCROCHAGE
+);
+
+        // Orientation GPS réelle pendant le demi-tour
+    // et le raccrochage uniquement
+    
+ // Orientation GPS réelle uniquement en mode Raccrochage
+if (
+    modeGuidage === MODE_RACCROCHAGE &&
+    Number.isFinite(capTracteur) &&
+    Number.isFinite(capAB)
+) {
+
+        let angleRelatif =
+            differenceAngulaire(capTracteur, capAB);
+
+        // Le tracteur peut suivre l'axe dans les deux sens
+        if (angleRelatif > 90) {
+            angleRelatif -= 180;
+        } else if (angleRelatif < -90) {
+            angleRelatif += 180;
+        }
+
+        // Le tracteur est dessiné horizontalement dans ces modes
+        tracteur.style.setProperty(
+            "--angle-tracteur",
+            angleRelatif + "deg"
+        );
+
+        
+        // Affichage de l'écart angulaire dans la ZDG
+        const angleRaccrochage =
+            document.getElementById("angleRaccrochage");
+
+        const capCible = (capAB + 180) % 360;
+
+        const ecartCapCible = differenceAngulaire(
+            capTracteur,
+            capCible
+        );
+
+        angleRaccrochage.textContent =
+            "Écart angulaire : " +
+            ecartCapCible.toFixed(0) +
+            "°";
+
+        angleRaccrochage.style.display = "block";
+
+        document.getElementById("debugEcart").textContent =
+            "Écart angulaire : " +
+            ecartCapCible.toFixed(0) +
+            "°";
+
+
+    } else {
+        // Le GPS réel fournit l'orientation ; l'axe visuel est ajusté
+        // en mode raccrochage dans le bloc dédié ci-dessus.
+        tracteur.style.setProperty("--angle-tracteur", "0deg");
+    }
+
+if (modeGuidage !== MODE_RACCROCHAGE) {
+    document.getElementById("angleRaccrochage").style.display = "none";
+}
+
+    if (sensDemiTour === DEMI_TOUR_DROITE) {
+    tracteur.style.left = "72%";
+} else {
+    tracteur.style.left = "28%";
+}
+
+    ecartTexte.style.color = "#0066ff";
+    ecartTexte.style.fontSize = "36px";
+    ecartTexte.style.fontWeight = "700";
+
+    ecartTexte.style.top = "36px";
+
+    if (sensDemiTour === DEMI_TOUR_DROITE) {
+    ecartTexte.style.left = "72%";
+} else {
+    ecartTexte.style.left = "28%";
+}
+
+
+ecartTexte.style.display = "block";
+
+    ecartTexte.innerHTML =
+        restantDemiTour.toFixed(1) + " m";
+
+} else {
+
+    tracteur.style.width = "30px";
+    tracteur.style.height = "60px";
+    tracteur.style.top = "180px";
+    tracteur.style.left = "50%";
+    tracteur.style.display = "block";
+
+// Orientation habituelle hors demi-tour et raccrochage
+    tracteur.style.setProperty("--angle-tracteur", "0deg");
+
+}
+
+
+
+if (modeGuidage === MODE_PAUSE) {
+
+    tracteur.style.display = "none";
+
+    ecartTexte.style.position = "absolute";
+    ecartTexte.style.left = "50%";
+    ecartTexte.style.top = "40px";
+    ecartTexte.style.transform =
+        "translateX(-50%)";
+
+
+    ecartTexte.style.fontSize = "16px";
+    ecartTexte.style.lineHeight = "1.2";
+    ecartTexte.style.textAlign = "center";
+    ecartTexte.style.whiteSpace = "normal";
+
+    const dx = pauseX - tracteurX;
+
+    const dy = pauseY - tracteurY;
+
+    const distancePause =
+    Math.sqrt(
+        dx * dx +
+        dy * dy
+
+    );
+
+    pointPauseRetrouve =
+    distancePause < 50;
+
+    const anglePause =
+    Math.atan2(dy, dx) * 180 / Math.PI;   
+
+let flechePause = "↑";
+
+if (anglePause >= -22.5 && anglePause < 22.5)
+    flechePause = "→";
+
+else if (anglePause >= 22.5 && anglePause < 67.5)
+    flechePause = "↗";
+
+else if (anglePause >= 67.5 && anglePause < 112.5)
+    flechePause = "↑";
+
+else if (anglePause >= 112.5 && anglePause < 157.5)
+    flechePause = "↖";
+
+else if (anglePause >= 157.5 || anglePause < -157.5)
+    flechePause = "←";
+
+else if (anglePause >= -157.5 && anglePause < -112.5)
+    flechePause = "↙";
+
+else if (anglePause >= -112.5 && anglePause < -67.5)
+    flechePause = "↓";
+
+else
+    flechePause = "↘";
+
+    
+    const textePointReprise =
+    pointPauseRetrouve
+        ? "✓ Point de reprise retrouvé"
+        : "⚠ Point de reprise non retrouvé";
+
+    const texteSensReprise =
+    "✓ Sens de reprise correct";
+
+
+    ecartTexte.innerHTML =
+
+    "PAUSE TRAVAIL<br>" +
+
+    "Ligne " + lignePause +
+
+    "     Sens A → B<br>" +
+
+    "Début de ligne à : " +
+
+    distancePauseLigne.toFixed(0) +
+
+    " m<br><br>" +
+
+    flechePause + " " +
+
+    distancePause.toFixed(0) +
+
+    " m<br><br>" +
+
+    textePointReprise + "<br>" +
+
+    texteSensReprise;
+
+
+if (pointPauseRetrouve) {
+
+    btnReprendre.classList.add(
+        "clignote"
+    );
+
+} else {
+
+    btnReprendre.classList.remove(
+        "clignote"
+    );
+}
+
+    return;
+}
+}
+
+
+function distanceSigneeAB(px, py) {
+/* calcul la distance perpendiculaire signée entre le point GPS
+ (px,py) et la droite passant par A et B */
+
+    const dx = pointB.x - pointA.x;
+    const dy = pointB.y - pointA.y;
+
+    return (
+        (px - pointA.x) * dy -
+        (py - pointA.y) * dx
+    ) / Math.sqrt(dx * dx + dy * dy);
+}
+
+function reinitialiserSigma() {
+
+    nombreMesures = 0;
+    sommeEcarts = 0;
+    sommeEcartsCarres = 0;
+    sigmaConduite = 0;
+}
+
+function avancementAB(px, py) {
+
+    const dx =
+        pointB.x - pointA.x;
+
+    const dy =
+        pointB.y - pointA.y;
+
+    const longueur =
+        Math.sqrt(dx * dx + dy * dy);
+
+    return (
+        (px - pointA.x) * dx +
+        (py - pointA.y) * dy
+    ) / longueur;
+}
+
+function differenceAngulaire(a, b) {
+
+    let diff = a - b;
+
+    while (diff > 180) {
+        diff -= 360;
+    }
+
+    while (diff < -180) {
+        diff += 360;
+    }
+
+    return diff;
+}
+
+function nomMode() {
+
+    switch (modeGuidage) {
+
+        case MODE_TRAVAIL:
+            return "TRAVAIL";
+
+        case MODE_DEMI_TOUR:
+            return "DEMI-TOUR";
+
+        case MODE_RACCROCHAGE:
+            return "RACCROCHAGE";
+
+        case MODE_PAUSE:
+            return "PAUSE";    
+
+        default:
+            return "?";
+    }
+}
+
+function afficherEtatReference() {
+
+    const distanceTracteur =
+        distanceSigneeAB(
+            tracteurX,
+            tracteurY
+        );
+
+    let distanceLigne;
+
+    if (modeReference === "bord") {
+
+        if (ligne === 0) {
+
+            distanceLigne = 0;
+
+        } else {
+
+            distanceLigne =
+                premierePasse +
+                (ligne - 1) * largeurTravail;
+        }
+
+    } else {
+
+        distanceLigne =
+            ligne * largeurTravail;
+    }
+
+    ecartLigne =
+        distanceTracteur -
+        distanceLigne;
+
+    document.getElementById("etatReference").textContent =
+
+        "Réf. : " +
+
+        longueurAB.toFixed(0) +
+
+        " m | Cap réf : " +
+
+        capAB.toFixed(1) +
+
+        "° | Cap trac : " +
+
+        capTracteur.toFixed(1) +
+
+        "° | Ligne : " +
+
+        distanceLigne.toFixed(0) +
+
+        " m | Trac : " +
+
+        distanceTracteur.toFixed(2) +
+
+        " m | Écart : " +
+
+        ecartLigne.toFixed(2) +
+
+        " m | Mode : " +
+
+        nomMode();
+
+    }
+
+function calculerDistanceLigne(ligneTest) {
+
+    if (modeReference === "bord") {
+
+        if (ligneTest === 0) {
+            return 0;
+        }
+
+        return (
+            premierePasse +
+            (ligneTest - 1) * largeurTravail
+        );
+    }
+
+    return ligneTest * largeurTravail;
+}
+
+
+let gpsWatchId = null;
+
+function demarrerGPS() {
+
+    if (gpsWatchId !== null) return;
+
+    if (!navigator.geolocation) {
+
+        alert("GPS non disponible");
+        return;
+    }
+
+    gpsWatchId = navigator.geolocation.watchPosition(
+
+        position => {
+
+            /*
+             * 1. Lecture GPS et historique
+             */
+
+            const lat =
+                position.coords.latitude;
+
+            const lon =
+                position.coords.longitude;
+
+            const precision =
+                position.coords.accuracy;
+
+            const vitesse =
+                position.coords.speed ?? 0;
+
+            const vitesseKmH =
+            vitesse * 3.6;
+
+            document.getElementById("vitesse").textContent =
+                vitesseKmH.toFixed(1) + " km/h";
+
+            const cap =
+                position.coords.heading;
+
+
+            /*
+             * 2. Origine
+             */
+
+            if (latitudeOrigine === null) {
+
+                latitudeOrigine = lat;
+                longitudeOrigine = lon;
+            }
+
+
+            /*
+             * 3. GPS -> XY
+             */
+
+            const pointXY =
+                convertirGPSVersXY(
+                    lat,
+                    lon
+                );
+
+
+            /*
+             * 4. Numéro du point
+             */
+
+            nombrePointsGPS++;
+
+
+            /*
+             * 5. Création du point GPS brut
+             */
+
+            const nouveauPoint = {
+
+                numero:
+                    nombrePointsGPS,
+
+                latitude:
+                    lat,
+
+                longitude:
+                    lon,
+
+                x:
+                    pointXY.x,
+
+                y:
+                    pointXY.y,
+
+                precision:
+                    precision,
+
+                vitesse:
+                    vitesse,
+
+                cap:
+                    cap,
+
+                capDnTest:
+                null,   
+
+                capDn:
+                    null,
+
+                sigma:
+                    null,
+
+                distancePnDnAvantTest:
+                    null,
+
+                distancePnDnApresAcceptation:
+                    null,
+
+                ecartDnPrisEnCompte:
+                    null,
+
+                statut: "INITIALISATION",    
+
+                suspect:
+                    false,
+
+                elimine:
+                    false,
+
+                temps:
+                    Date.now()
+            };
+
+
+            /*
+             * 6. Tous les points GPS restent
+             *    visibles dans historiqueGPS
+             */
+
+            historiqueGPS.push(
+                nouveauPoint
+            );
+
+            
+            // Position GPS lissée du tracteur
+            const nombrePointsLissage =
+                (
+                    modeGuidage === MODE_DEMI_TOUR ||
+                    modeGuidage === MODE_RACCROCHAGE
+                ) ? 3 : 5;
+
+            const pointsLisses =
+                historiqueGPS.slice(-nombrePointsLissage);
+
+            const sommeXTracteur =
+                pointsLisses.reduce(
+                    (somme, point) => somme + point.x,
+                    0
+                );
+
+            const sommeYTracteur =
+                pointsLisses.reduce(
+                    (somme, point) => somme + point.y,
+                    0
+                );
+
+            tracteurX =
+                sommeXTracteur / pointsLisses.length;
+
+            tracteurY =
+                sommeYTracteur / pointsLisses.length;
+
+            // Cap fourni par l'iPhone, s'il est disponible
+            if (Number.isFinite(cap)) {
+                capTracteur = cap;
+            }
+
+            
+
+           
+            // Détection du début du demi-tour en GPS réel
+            if (
+                modeGPS &&
+                pointA &&
+                pointB &&
+                modeGuidage === MODE_TRAVAIL
+            ) {
+                // Si le cap est momentanément indisponible,
+                // conserver l'état de détection et attendre
+                // une nouvelle mesure valide.
+                if (Number.isFinite(cap)) {
+
+                    const capInverseAB = (capAB + 180) % 360;
+
+                    const ecartAB =
+                        differenceAngulaire(cap, capAB);
+
+                    const ecartInverseAB =
+                        differenceAngulaire(cap, capInverseAB);
+
+                    const ecartCapAxe = Math.min(
+                        Math.abs(ecartAB),
+                        Math.abs(ecartInverseAB)
+                    );
+
+                    // Commencer à cumuler la rotation dès que
+                    // le cap s'écarte de l'axe de plus de 10°
+                    if (ecartCapAxe > 10) {
+
+                        if (capPrecedentDemiTour === null) {
+                            capPrecedentDemiTour = cap;
+                            rotationCumuleeDemiTour = 0;
+                        } else {
+                            const variationCap =
+                                differenceAngulaire(
+                                    cap,
+                                    capPrecedentDemiTour
+                                );
+
+                            rotationCumuleeDemiTour += variationCap;
+                            capPrecedentDemiTour = cap;
+                        }
+
+                    } else {
+                        // Le tracteur est revenu près de l'axe :
+                        // réinitialiser la détection
+                        nombreCapsDemiTour = 0;
+                        capPrecedentDemiTour = null;
+                        rotationCumuleeDemiTour = 0;
+                        sensCandidatDemiTour = 0;
+                    }
+
+                    if (ecartCapAxe > SEUIL_CAP_DEMI_TOUR) {
+                        nombreCapsDemiTour++;
+                    } else {
+                        nombreCapsDemiTour = 0;
+                    }
+
+
+if (
+    nombreCapsDemiTour >=
+    NB_CAPS_CONFIRMATION_DEMI_TOUR
+) {
+    // Le signe de la rotation détermine
+    // le sens du demi-tour.
+    const rotationSignee =
+        rotationCumuleeDemiTour;
+
+    // Ancienne condition de rotation cumulée,
+    // conservée temporairement pour les essais :
+    // if (Math.abs(rotationCumuleeDemiTour) >= 15) {
+
+        sensCandidatDemiTour =
+            rotationSignee >= 0
+                ? DEMI_TOUR_DROITE
+                : DEMI_TOUR_GAUCHE;
+
+        sensDemiTour = sensCandidatDemiTour;
+
+        modeGuidage = MODE_DEMI_TOUR;
+
+        if (modeReference === "bord") {
+            ligneCible = ligne + 1;
+        } else {
+            ligneCible =
+                ligne + sensDemiTour;
+        }
+
+        // L'affichage sera rafraîchi après calculerGuidage()
+        // dans le traitement général de cette position GPS.
+
+    // } // Fin de l'ancienne condition des 15°
+
+    nombreCapsDemiTour = 0;
+    capPrecedentDemiTour = null;
+    rotationCumuleeDemiTour = 0;
+    sensCandidatDemiTour = 0;
+}
+
+                }
+
+            } else {
+                nombreCapsDemiTour = 0;
+                capPrecedentDemiTour = null;
+                rotationCumuleeDemiTour = 0;
+                sensCandidatDemiTour = 0;
+            }
+
+  
+
+            // Actualiser l'affichage si A-B est définie
+            if (pointA && pointB) {
+                calculerGuidage();
+                afficher();
+            }
+
+            
+            // Enregistrement brut du trajet A-B
+
+            
+            // Attendre une vitesse suffisante pendant 3 secondes
+            if (
+                etatConstructionAB === "ATTENTE_VITESSE"
+            ) {
+                if (vitesseKmH >= VITESSE_DEPART_AB) {
+
+                    if (debutVitesseAB === null) {
+                        debutVitesseAB = Date.now();
+                    }
+
+                    if (
+                        Date.now() - debutVitesseAB >=
+                        DUREE_CONFIRMATION_AB_MS
+                    ) {
+                        etatConstructionAB = "ENREGISTREMENT";
+
+                        document.getElementById("etatReference")
+                            .textContent =
+                            "A enregistré — enregistrement du trajet vers B";
+                    }
+
+                } else {
+                    // Si la vitesse redescend, le délai repart à zéro
+                    debutVitesseAB = null;
+                }
+            }
+
+
+            if (
+                etatConstructionAB === "ENREGISTREMENT"
+            ) {
+                pointsReferenceAB.push({
+                    x: nouveauPoint.x,
+                    y: nouveauPoint.y,
+                    vitesseKmH: vitesseKmH,
+                    temps: nouveauPoint.temps
+                });
+            }
+
+
+           if (
+             vitesseKmH < VITESSE_MIN_DN
+            ) {
+
+            nouveauPoint.statut =
+            "INITIALISATION";
+
+            afficherFenetreGPS(null);
+
+             return;
+            } 
+
+            while (
+    historiqueGPS.length >
+    NB_POINTS_AFFICHAGE
+) {
+
+    historiqueGPS.shift();
+}
+
+
+            /*
+             * 7. Dn AVANT l'intégration de Pn
+             *
+             *    Pn ne participe donc pas
+             *    à la Dn qui sert à le qualifier.
+             */
+
+            if (
+    pointsGPSAcceptes.length === 0
+) {
+
+    nouveauPoint.statut =
+        "DEPART";
+
+    pointsGPSAcceptes.push(
+        nouveauPoint
+    );
+
+    afficherFenetreGPS(null);
+
+    return;
+}
+
+            let donneesDnAvant = {
+
+    trajectoire: null,
+
+    capDn: null,
+
+    sigma: 0
+};
+
+if (
+    pointsGPSAcceptes.length >=
+    NB_POINTS_MIN_DN
+) {
+
+    donneesDnAvant =
+        calculerDonneesDn(
+            pointsGPSAcceptes
+        );
+}
+           
+
+            /*
+             * 8. Seuils fixes
+             *
+             *    T = 1,00 m
+             *    2T = 2,00 m
+             */
+
+            const seuilDistance =
+                1.00;
+
+            const seuilRejet =
+                2.00;
+
+
+            /*
+             * 9. Qualification du nouveau point
+             */
+
+            let pointSuspect =
+                false;
+
+            let pointRejete =
+                false;
+
+            let pointPourCalcul =
+                nouveauPoint;
+
+
+            if (
+                donneesDnAvant.trajectoire
+            ) {
+
+                nouveauPoint.capDnTest =
+        donneesDnAvant.capDn;
+
+                const distanceTest =
+                    calculerDistancePointDn(
+                        nouveauPoint,
+                        donneesDnAvant.trajectoire
+                    );
+
+
+                /*
+                 * Distance brute de Pn à Dn AVANT test
+                 */
+
+                nouveauPoint.distancePnDnAvantTest =
+                    distanceTest;
+
+
+                /*
+                 * CAS 1
+                 *
+                 * d_Dn <= T
+                 *
+                 * ACCEPTÉ
+                 */
+
+                if (
+                    distanceTest <=
+                    seuilDistance
+                ) {
+
+                    nouveauPoint.statut =
+                        "ACCEPTE";
+
+                    nouveauPoint.suspect =
+                        false;
+
+                    nouveauPoint.elimine =
+                        false;
+                }
+
+
+                /*
+                 * CAS 2
+                 *
+                 * T < d_Dn <= 2T
+                 *
+                 * SUSPECT
+                 */
+
+                else if (
+                    distanceTest <=
+                    seuilRejet
+                ) {
+
+                    pointSuspect =
+                        true;
+
+                    nouveauPoint.statut =
+                        "SUSPECT";
+
+                    nouveauPoint.suspect =
+                        true;
+
+                    nouveauPoint.elimine =
+                        false;
+
+
+                    /*
+                     * Écart retenu pour le calcul
+                     *
+                     * écart corrigé =
+                     * T + (d_Dn - T) / 2
+                     *
+                     * soit :
+                     *
+                     * (T + d_Dn) / 2
+                     */
+
+                    const ecartCorrige =
+                        (
+                            seuilDistance +
+                            distanceTest
+                        ) / 2;
+
+
+                    nouveauPoint.ecartDnPrisEnCompte =
+                        ecartCorrige;
+
+
+                    /*
+                     * Projection orthogonale
+                     * du point GPS sur Dn
+                     */
+
+                    const trajectoire =
+                        donneesDnAvant.trajectoire;
+
+                    const dx =
+                        nouveauPoint.x -
+                        trajectoire.x;
+
+                    const dy =
+                        nouveauPoint.y -
+                        trajectoire.y;
+
+                    const projection =
+                        dx * trajectoire.vx +
+                        dy * trajectoire.vy;
+
+
+                    const pointProjection = {
+
+                        x:
+                            trajectoire.x +
+                            projection *
+                            trajectoire.vx,
+
+                        y:
+                            trajectoire.y +
+                            projection *
+                            trajectoire.vy
+                    };
+
+
+                    /*
+                     * Distance à déplacer vers Dn
+                     *
+                     * d_Dn - écart corrigé
+                     */
+
+                    const distanceAReculer =
+                        distanceTest -
+                        ecartCorrige;
+
+
+                    let proportionDeplacement =
+                        0;
+
+                    if (
+                        distanceTest > 0
+                    ) {
+
+                        proportionDeplacement =
+                            distanceAReculer /
+                            distanceTest;
+                    }
+
+
+                    /*
+                     * Point corrigé utilisé
+                     * pour Dn et Sigma
+                     */
+
+                    pointPourCalcul = {
+
+                        ...nouveauPoint,
+
+                        x:
+                            nouveauPoint.x +
+                            (
+                                pointProjection.x -
+                                nouveauPoint.x
+                            ) *
+                            proportionDeplacement,
+
+                        y:
+                            nouveauPoint.y +
+                            (
+                                pointProjection.y -
+                                nouveauPoint.y
+                            ) *
+                            proportionDeplacement
+                    };
+                }
+
+
+                /*
+                 * CAS 3
+                 *
+                 * d_Dn > 2T
+                 *
+                 * REJETÉ
+                 */
+
+                else {
+
+                    nouveauPoint.statut =
+                    "ACCEPTE";
+
+                    pointRejete =
+                        true;
+
+                    nouveauPoint.statut =
+                        "REJETE";
+
+                    nouveauPoint.suspect =
+                        false;
+
+                    nouveauPoint.elimine =
+                        true;
+                }
+            }
+
+
+            /*
+             * 10. Point rejeté
+             *
+             *     Il reste dans historiqueGPS
+             *     mais ne rentre PAS dans
+             *     pointsGPSAcceptes.
+             */
+
+            if (
+                pointRejete
+            ) {
+
+                console.log(
+                    "Point rejeté : P" +
+                    nouveauPoint.numero +
+                    " | d_Dn = " +
+                    nouveauPoint.distancePnDnAvantTest.toFixed(2) +
+                    " m"
+                );
+            }
+
+
+            /*
+             * 11. Point accepté ou suspect
+             *
+             *     Les deux participent à la
+             *     nouvelle Dn.
+             *
+             *     Pour un suspect, c'est
+             *     pointPourCalcul qui est utilisé.
+             */
+
+            else {
+
+                pointsGPSAcceptes.push(
+                    pointPourCalcul
+                );
+
+
+                /*
+                 * Fenêtre glissante de 10
+                 * points utilisés pour le calcul
+                 */
+
+                while (
+                    pointsGPSAcceptes.length >
+                    NB_POINTS_REGRESSION
+                ) {
+
+                    pointsGPSAcceptes.shift();
+                }
+
+
+                /*
+                 * 12. Nouvelle Dn
+                 *     avec les points retenus
+                 */
+
+                const donneesDn =
+                    calculerDonneesDn(
+                        pointsGPSAcceptes
+                    );
+
+
+                /*
+                 * 13. Mémorisation de CapDn
+                 *     et Sigma sur le point GPS brut
+                 */
+
+                nouveauPoint.capDn =
+                    donneesDn.capDn;
+
+                nouveauPoint.sigma =
+                    donneesDn.sigma;
+
+
+                /*
+                 * 14. Distance de Pn brut
+                 *     à la nouvelle Dn
+                 */
+
+                if (
+                    donneesDn.trajectoire
+                ) {
+
+                    nouveauPoint.distancePnDnApresAcceptation =
+                        calculerDistancePointDn(
+                            nouveauPoint,
+                            donneesDn.trajectoire
+                        );
+                }
+
+
+                /*
+                 * 15. Information console
+                 *     pour un point suspect
+                 */
+
+                if (
+                    pointSuspect
+                ) {
+
+                    console.log(
+                        "Point suspect : P" +
+                        nouveauPoint.numero +
+                        " | d_Dn = " +
+                        nouveauPoint.distancePnDnAvantTest.toFixed(2) +
+                        " m | retenu = " +
+                        nouveauPoint.ecartDnPrisEnCompte.toFixed(2) +
+                        " m"
+                    );
+                }
+            }
+
+
+            /*
+             * 16. Dn actuelle pour l'affichage
+             */
+
+            const donneesDnActuelles =
+                calculerDonneesDn(
+                    pointsGPSAcceptes
+                );
+
+
+            /*
+             * 17. Tableau GPS
+             */
+
+            afficherFenetreGPS(
+                donneesDnActuelles
+            );
+
+
+            /*
+             * 18. Affichage du filtre
+             */
+
+            let texteFiltre =
+                "T = 1,00 m | d_Dn = ";
+
+            if (
+                nouveauPoint.distancePnDnAvantTest !==
+                null
+            ) {
+
+                texteFiltre +=
+                    nouveauPoint.distancePnDnAvantTest.toFixed(2) +
+                    " m";
+
+            } else {
+
+                texteFiltre +=
+                    "---";
+            }
+
+
+            /*
+             * Statut
+             */
+
+            texteFiltre +=
+                " | " +
+                nouveauPoint.statut;
+
+
+            /*
+             * Écart retenu pour un suspect
+             */
+
+            if (
+                pointSuspect
+            ) {
+
+                texteFiltre +=
+                    " | pris en compte = " +
+                    nouveauPoint.ecartDnPrisEnCompte.toFixed(2) +
+                    " m";
+            }
+
+
+            /*
+             * 19. Affichage filtre
+             */
+
+            document.getElementById(
+                "filtreGPSInfo"
+            ).textContent =
+                texteFiltre;
+
+
+            /*
+             * 20. Ancien affichage GPS supprimé
+             */
+
+            document.getElementById(
+                "gpsInfo"
+            ).innerHTML = "";
+
+        },
+
+
+        /*
+         * Erreur GPS
+         */
+
+        erreur => {
+
+            console.log(
+                "Erreur GPS :",
+                erreur.code,
+                erreur.message
+            );
+        },
+
+
+        /*
+         * Options GPS
+         */
+
+        {
+
+            enableHighAccuracy:
+                true,
+
+            maximumAge:
+                0,
+
+            timeout:
+                10000
+        }
+    );
+}
+
+function calculerSigmaGPS() {
+
+    if (historiqueGPS.length < 5) {
+
+        return 0;
+
+    }
+
+    let sommePrecision = 0;
+
+    for (const point of historiqueGPS) {
+
+        sommePrecision +=
+            point.precision;
+
+    }
+
+    const moyenne =
+        sommePrecision /
+        historiqueGPS.length;
+
+    let sommeCarres = 0;
+
+    for (const point of historiqueGPS) {
+
+        const ecart =
+            point.precision -
+            moyenne;
+
+        sommeCarres +=
+            ecart * ecart;
+    }
+
+    return Math.sqrt(
+        sommeCarres /
+        historiqueGPS.length
+    );
+}
+
+function convertirGPSVersXY(latitude, longitude) {
+
+    const rayonTerre = 6378137;
+
+    const deltaLatitude =
+        (latitude - latitudeOrigine)
+        * Math.PI / 180;
+
+    const deltaLongitude =
+        (longitude - longitudeOrigine)
+        * Math.PI / 180;
+
+    const x =
+        deltaLongitude
+        * rayonTerre
+        * Math.cos(
+            latitudeOrigine
+            * Math.PI / 180
+        );
+
+    const y =
+        deltaLatitude
+        * rayonTerre;
+
+    return { x, y };
+}
+
+
+function obtenirPointsRegression() {
+
+    if (historiqueGPS.length < NB_POINTS_REGRESSION) {
+        return [];
+    }
+
+    return historiqueGPS.slice(
+        -NB_POINTS_REGRESSION
+    );
+}
+
+function calculerRegressionLineaire(points) {
+
+    const n = points.length;
+
+    if (n < 2) {
+        return null;
+    }
+
+    let sommeX = 0;
+    let sommeY = 0;
+    let sommeXY = 0;
+    let sommeX2 = 0;
+
+    for (const point of points) {
+
+        sommeX += point.x;
+        sommeY += point.y;
+        sommeXY += point.x * point.y;
+        sommeX2 += point.x * point.x;
+
+    }
+
+    const denominateur =
+        n * sommeX2 -
+        sommeX * sommeX;
+
+    if (Math.abs(denominateur) < 0.000001) {
+        return null;
+    }
+
+    const pente =
+        (n * sommeXY -
+         sommeX * sommeY)
+        / denominateur;
+
+    const ordonneeOrigine =
+        (sommeY -
+         pente * sommeX)
+        / n;
+
+    return {
+
+        pente,
+
+        ordonneeOrigine
+
+    };
+}
+
+function calculerPointsIntermediaires(
+    pointsSource
+) {
+
+    const pointsIntermediaires = [];
+
+    if (
+        pointsSource.length < 2
+    ) {
+
+        return pointsIntermediaires;
+    }
+
+    for (
+        let index = 0;
+        index < pointsSource.length - 1;
+        index++
+    ) {
+
+        const point1 =
+            pointsSource[index];
+
+        const point2 =
+            pointsSource[index + 1];
+
+        pointsIntermediaires.push({
+
+            x:
+                (point1.x + point2.x) / 2,
+
+            y:
+                (point1.y + point2.y) / 2
+        });
+    }
+
+    return pointsIntermediaires;
+}
+
+function calculerTrajectoireDn(pointsIntermediaires) {
+
+    if (pointsIntermediaires.length < 2) {
+        return null;
+    }
+
+    // 1. Centre géométrique des points PI
+    let sommeX = 0;
+    let sommeY = 0;
+
+    for (const point of pointsIntermediaires) {
+
+        sommeX += point.x;
+        sommeY += point.y;
+    }
+
+    const moyenneX =
+        sommeX / pointsIntermediaires.length;
+
+    const moyenneY =
+        sommeY / pointsIntermediaires.length;
+
+
+    // 2. Matrice de dispersion
+    let sommeXX = 0;
+    let sommeYY = 0;
+    let sommeXY = 0;
+
+    for (const point of pointsIntermediaires) {
+
+        const dx =
+            point.x - moyenneX;
+
+        const dy =
+            point.y - moyenneY;
+
+        sommeXX += dx * dx;
+        sommeYY += dy * dy;
+        sommeXY += dx * dy;
+    }
+
+
+    // 3. Direction principale de la trajectoire
+    const angleMath =
+        0.5 *
+        Math.atan2(
+            2 * sommeXY,
+            sommeXX - sommeYY
+        );
+
+    let vx =
+        Math.cos(angleMath);
+
+    let vy =
+        Math.sin(angleMath);
+
+
+    // 4. Orienter Dn dans le sens du déplacement
+    const premierPI =
+        pointsIntermediaires[0];
+
+    const dernierPI =
+        pointsIntermediaires[
+            pointsIntermediaires.length - 1
+        ];
+
+    const deplacementX =
+        dernierPI.x - premierPI.x;
+
+    const deplacementY =
+        dernierPI.y - premierPI.y;
+
+    const produitScalaire =
+        vx * deplacementX +
+        vy * deplacementY;
+
+    if (produitScalaire < 0) {
+
+        vx = -vx;
+        vy = -vy;
+    }
+
+
+    // 5. Dn passe par le centre des PI
+    return {
+
+        x: moyenneX,
+        y: moyenneY,
+
+        vx: vx,
+        vy: vy
+    };
+}
+
+function determinerCapTrajectoireDn(trajectoire) {
+
+    if (!trajectoire) {
+        return null;
+    }
+
+    let cap =
+        Math.atan2(
+            trajectoire.vx,
+            trajectoire.vy
+        ) * 180 / Math.PI;
+
+    if (cap < 0) {
+        cap += 360;
+    }
+
+    return cap;
+}
+
+
+function calculerDonneesDn(
+    pointsSource
+) {
+
+    const pointsIntermediaires =
+        calculerPointsIntermediaires(
+            pointsSource
+        );
+
+    if (
+        pointsIntermediaires.length < 2
+    ) {
+
+        return {
+
+            pointsIntermediaires:
+                pointsIntermediaires,
+
+            trajectoire: null,
+
+            capDn: null,
+
+            distancesDn: [],
+
+            sigma: 0
+        };
+    }
+
+    const trajectoire =
+        calculerTrajectoireDn(
+            pointsIntermediaires
+        );
+
+    if (!trajectoire) {
+
+        return {
+
+            pointsIntermediaires:
+                pointsIntermediaires,
+
+            trajectoire: null,
+
+            capDn: null,
+
+            distancesDn: [],
+
+            sigma: 0
+        };
+    }
+
+    const capDn =
+        determinerCapTrajectoireDn(
+            trajectoire
+        );
+
+    const distancesDn = [];
+    const distancesSignees = [];
+
+    for (
+        const point of pointsSource
+    ) {
+
+        const distanceSignee =
+            calculerDistancePointDn(
+                point,
+                trajectoire
+            );
+
+        distancesSignees.push(
+            distanceSignee
+        );
+
+        distancesDn.push(
+            distanceSignee
+        );
+    }
+
+    let sommeDistances = 0;
+
+    for (
+        const distance
+        of distancesSignees
+    ) {
+
+        sommeDistances += distance;
+    }
+
+    const moyenneDistances =
+        sommeDistances /
+        distancesSignees.length;
+
+    let sommeCarres = 0;
+
+    for (
+        const distance
+        of distancesSignees
+    ) {
+
+        const ecart =
+            distance -
+            moyenneDistances;
+
+        sommeCarres +=
+            ecart * ecart;
+    }
+
+    const sigma =
+        Math.sqrt(
+            sommeCarres /
+            distancesSignees.length
+        );
+
+    return {
+
+        pointsIntermediaires:
+            pointsIntermediaires,
+
+        trajectoire:
+            trajectoire,
+
+        capDn:
+            capDn,
+
+        distancesDn:
+            distancesDn,
+
+        sigma:
+            sigma
+    };
+}
+
+function afficherFenetreGPS(donneesDn) {
+
+    const corps =
+        document.getElementById(
+            "corpsTableauGPS"
+        );
+
+    corps.innerHTML = "";
+
+    /*
+     * Du plus récent vers le plus ancien
+     */
+
+    for (
+        let index = historiqueGPS.length - 1;
+        index >= 0;
+        index--
+    ) {
+
+        const point =
+            historiqueGPS[index];
+
+        const ligne =
+            document.createElement("tr");
+
+if (
+    point.statut === "DEPART"
+) {
+
+    ligne.classList.add(
+        "ligneDepart"
+    );
+
+}
+else if (
+    point.statut === "INITIALISATION"
+) {
+
+    ligne.classList.add(
+        "ligneInitialisation"
+    );
+
+}
+else if (
+    point.statut === "SUSPECT"
+) {
+ 
+
+    ligne.classList.add("ligneSuspecte");
+
+}
+ else if (point.statut === "REJETE")
+     {
+
+    ligne.classList.add("ligneRejetee");
+}
+
+        const capGPS =
+    Number.isFinite(point.cap)
+    ? point.cap.toFixed(0)
+    : "---";
+
+        const capDn =
+    (
+        point.capDnTest != null &&
+        Number.isFinite(point.capDnTest)
+    )
+    ? point.capDnTest.toFixed(0)
+    : "---";
+
+        const distanceDn =
+    point.distancePnDnAvantTest !== null
+        ? point.distancePnDnAvantTest.toFixed(2)
+        : "---";
+
+        const sigma =
+    Number.isFinite(point.sigma)
+    ? point.sigma.toFixed(2)
+    : "---";
+
+        ligne.innerHTML =
+
+            "<td>P" +
+            point.numero +
+            "</td>" +
+
+            "<td>" +
+            point.x.toFixed(1) +
+            "</td>" +
+
+            "<td>" +
+            point.y.toFixed(1) +
+            "</td>" +
+
+            "<td>" +
+            (point.vitesse * 3.6).toFixed(1) +
+            "</td>" +
+
+            "<td>" +
+            capGPS +
+            "°</td>" +
+
+            "<td>" +
+            capDn +
+            "°</td>" +
+
+            "<td>" +
+            distanceDn +
+            "</td>" +
+
+            "<td>" +
+            sigma +
+            "</td>";
+
+        /*
+         * Ajout dans l'ordre :
+         * plus récent en haut
+        */ 
+
+        corps.appendChild(ligne);
+    }
+           
+}
+
+
+function calculerDistancePointDn(
+    point,
+    trajectoire
+) {
+
+    if (!trajectoire) {
+        return null;
+    }
+
+    const dx =
+        point.x - trajectoire.x;
+
+    const dy =
+        point.y - trajectoire.y;
+
+    const distanceSignee =
+        dx * trajectoire.vy -
+        dy * trajectoire.vx;
+
+    return Math.abs(
+        distanceSignee
+    );
+}
+
+
+
+afficher();
+
+demarrerGPS();
