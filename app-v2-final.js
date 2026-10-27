@@ -57,7 +57,7 @@ const SEUIL_CAP_DEMI_TOUR = 45;
 let sensCandidatDemiTour = 0;
 let capPrecedentDemiTour = null;
 let rotationCumuleeDemiTour = 0;
-const SEUIL_RACCROCHAGE = 1.00; // mètres
+const SEUIL_RACCROCHAGE = 2.00; // mètres
 
 
 let pointPauseRetrouve = false;
@@ -468,10 +468,9 @@ function calculerGuidage() {
     }
 }
 
+
 function afficher() {
     
-
-
 if (sensDemiTour === DEMI_TOUR_DROITE) {
 
     if (modeReference === "bord" && ligne === 0) {
@@ -585,7 +584,7 @@ else {
                         ? "Pause"
                         : "Travail";
 
-        document.getElementById("etatReference").textContent =
+        document.getElementById("etatGuidage").textContent =
             messageGuidage + " — ligne cible " + ligneCible +
             " | DistTrac=" + distanceTracteurCourante.toFixed(1) +
             " | DistCible=" + distanceCibleCourante.toFixed(1) +
