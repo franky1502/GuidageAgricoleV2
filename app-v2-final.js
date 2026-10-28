@@ -95,6 +95,10 @@ const DEMI_TOUR_GAUCHE = -1;
 
 let sensDemiTour = DEMI_TOUR_DROITE;
 
+let positionFinRaccrochage = null;
+let verrouDemiTourActif = false;
+const DISTANCE_MIN_AVANT_NOUVEAU_DEMI_TOUR = 30; // m
+
 let pointDepartLigneGPS = null;
 
 const ligneMoins = document.getElementById("ligneMoins");
@@ -458,14 +462,44 @@ function calculerGuidage() {
         modeGuidage = MODE_RACCROCHAGE;
     }
 
-    if (modeGuidage === MODE_RACCROCHAGE && restantDemiTour < SEUIL_RACCROCHAGE) {
-        modeGuidage = MODE_TRAVAIL;
-        ligne = ligneCible;
-        pointDepartLigneGPS = { x: tracteurX, y: tracteurY };
-        capTracteur = capAB;
-        ecartLigne = 0;
-        reinitialiserSigma();
-    }
+// repasser en mode travail
+
+    if (
+    modeGuidage === MODE_RACCROCHAGE &&
+    restantDemiTour < SEUIL_RACCROCHAGE
+) {
+    modeGuidage = MODE_TRAVAIL;
+
+    ligne = ligneCible;
+
+    pointDepartLigneGPS = {
+        x: tracteurX,
+        y: tracteurY
+    };
+
+    // pour le verrou anti faux demi-tour
+
+    positionFinRaccrochage = {
+    x: tracteurX,
+    y: tracteurY
+};
+
+verrouDemiTourActif = true;
+
+    // Ne pas remplacer le cap GPS réel par capAB.
+
+    // Recalculer l'écart par rapport à la nouvelle ligne.
+    const distanceLigneCourante =
+        calculerDistanceLigne(ligne);
+
+    distanceTracteurCourante =
+        distanceSigneeAB(tracteurX, tracteurY);
+
+    ecartLigne =
+        distanceTracteurCourante - distanceLigneCourante;
+
+    reinitialiserSigma();
+}
 }
 
 
@@ -577,7 +611,8 @@ else {
     if (pointA && pointB) {
         const messageGuidage =
             modeGuidage === MODE_DEMI_TOUR
-                ? (sensDemiTour === DEMI_TOUR_DROITE ? "Demi-tour droit" : "Demi-tour gauche")
+                ? (sensDemiTour === DEMI_TOUR_DROITE ? 
+                    "Demi-tour droit" : "Demi-tour gauche")
                 : modeGuidage === MODE_RACCROCHAGE
                     ? "Raccrochage"
                     : modeGuidage === MODE_PAUSE
@@ -586,14 +621,18 @@ else {
 
         document.getElementById("etatGuidage").textContent =
             messageGuidage + " — ligne cible " + ligneCible +
-            " | DistTrac=" + distanceTracteurCourante.toFixed(1) +
-            " | DistCible=" + distanceCibleCourante.toFixed(1) +
-            " | Restant=" + restantDemiTour.toFixed(1) + " m";
+            " | D.Trac=" + distanceTracteurCourante.toFixed(1) +
+            " | D.Cible=" + distanceCibleCourante.toFixed(1) +
+            " | Restant=" + restantDemiTour.toFixed(1);
     }
 
+   
     document.getElementById("debugEcart").textContent =
         "Écart = " + ecartLigne.toFixed(2) + " m";
     
+
+// affichage tracteur en mode travail
+
     const centre = 50;
 
   
@@ -1233,15 +1272,42 @@ function demarrerGPS() {
                 capTracteur = cap;
             }
 
-            
+// verrou anti faux demi-tour
 
+            if (
+    verrouDemiTourActif &&
+    positionFinRaccrochage !== null
+) {
+    const dx =
+        tracteurX - positionFinRaccrochage.x;
+
+    const dy =
+        tracteurY - positionFinRaccrochage.y;
+
+    const distanceDepuisFinRaccrochage =
+        Math.hypot(dx, dy);
+
+    if (
+        distanceDepuisFinRaccrochage >=
+        DISTANCE_MIN_AVANT_NOUVEAU_DEMI_TOUR
+    ) {
+        verrouDemiTourActif = false;
+
+        nombreCapsDemiTour = 0;
+        capPrecedentDemiTour = null;
+        rotationCumuleeDemiTour = 0;
+        sensCandidatDemiTour = 0;
+    }
+}
+//
            
             // Détection du début du demi-tour en GPS réel
             if (
                 modeGPS &&
                 pointA &&
                 pointB &&
-                modeGuidage === MODE_TRAVAIL
+                 modeGuidage === MODE_TRAVAIL &&
+                 !verrouDemiTourActif
             ) {
                 // Si le cap est momentanément indisponible,
                 // conserver l'état de détection et attendre
