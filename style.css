@@ -12,6 +12,7 @@ body {
 }
 
 h1 {
+    font-size: 20px;
     text-align: center;
     margin-bottom: 15px;
 }
@@ -125,23 +126,31 @@ button {
 
 /* Tracteur */
 
+
 #tracteur {
-
     position: absolute;
-
     left: 50%;
-
     top: 240px;
-
     width: 30px;
-
     height: 60px;
-
     transform: translateX(-50%) rotate(var(--angle-tracteur, 0deg));
-transform-origin: center center;
-
+    transform-origin: center center;
     background: transparent;
 }
+
+/* Axe longitudinal visible pendant le raccrochage GPS */
+#tracteur.axe-visible::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -12px;
+    height: 84px;
+    width: 3px;
+    background: #ff6600;
+    transform: translateX(-50%);
+    border-radius: 2px;
+}
+
 
 /* Ecart */
 
@@ -420,4 +429,23 @@ transform-origin: center center;
     height: 100%;
     object-fit: contain;
     pointer-events: none;
+}
+
+
+/* Écart angulaire pendant le raccrochage GPS */
+#angleRaccrochage {
+    display: none;
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    padding: 5px 10px;
+    background: white;
+    color: #d97706;
+    border: 2px solid #d97706;
+    border-radius: 8px;
+    font-size: 20px;
+    font-weight: bold;
+    white-space: nowrap;
 }

@@ -325,10 +325,9 @@ btnB.addEventListener("click", () => {
         btnB.style.color = "white";
 
         document.getElementById("etatReference").textContent =
-            "Référence GPS calculée | " +
+            "A-B: " + "CapAB: " + capAB.toFixed(1) + "° | " +
             pointsReferenceAB.length + " points | " +
-            longueurAB.toFixed(1) + " m | Cap : " +
-            capAB.toFixed(1) + "° | σAB : " +
+            longueurAB.toFixed(1) + " m | " + "| σAB : " +
             sigmaAB.toFixed(2) + " m";
 
         reinitialiserSigma();
