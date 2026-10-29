@@ -430,7 +430,7 @@ btnReprendre.addEventListener("click", () => {
 
 
 // Valeurs calculées par le moteur de guidage et consommées par l'affichage.
-let distanceTracteurCourante = 0;
+let distanceTracteurAB = 0;
 let distanceCibleCourante = 0;
 let restantDemiTour = 0;
 
@@ -438,10 +438,12 @@ function calculerGuidage() {
     if (!pointA || !pointB) return;
 
     const distanceLigneCourante = calculerDistanceLigne(ligne);
-    distanceTracteurCourante = distanceSigneeAB(tracteurX, tracteurY);
-    ecartLigne = distanceTracteurCourante - distanceLigneCourante;
+    distanceTracteurAB = distanceSigneeAB(tracteurX, tracteurY);
+    ecartLigne = distanceTracteurAB - distanceLigneCourante;
     distanceCibleCourante = calculerDistanceLigne(ligneCible);
-    restantDemiTour = Math.abs(distanceCibleCourante - distanceTracteurCourante);
+    restantDemiTour = distanceCibleCourante - Math.abs(distanceTracteurAB);
+// ! formule valable en mode 'bord parcelle' ! à étudier en mode 'centre'
+
 
     if (modeGuidage === MODE_TRAVAIL) {
         nombreMesures++;
@@ -457,7 +459,7 @@ function calculerGuidage() {
         }
     }
 
-    if (modeGuidage === MODE_DEMI_TOUR && restantDemiTour < 4) {
+    if (modeGuidage === MODE_DEMI_TOUR && Math.abs(restantDemiTour) < 4) {
         modeGuidage = MODE_RACCROCHAGE;
     }
 
@@ -491,11 +493,11 @@ verrouDemiTourActif = true;
     const distanceLigneCourante =
         calculerDistanceLigne(ligne);
 
-    distanceTracteurCourante =
+    distanceTracteurAB =
         distanceSigneeAB(tracteurX, tracteurY);
 
     ecartLigne =
-        distanceTracteurCourante - distanceLigneCourante;
+        distanceTracteurAB - distanceLigneCourante;
 
     reinitialiserSigma();
 }
@@ -620,7 +622,7 @@ else {
 
         document.getElementById("etatGuidage").textContent =
             messageGuidage + " — ligne cible " + ligneCible +
-            " | D.Trac=" + distanceTracteurCourante.toFixed(1) +
+            " | D.Trac=" + distanceTracteurAB.toFixed(1) +
             " | D.Cible=" + distanceCibleCourante.toFixed(1) +
             " | Restant=" + restantDemiTour.toFixed(1);
     }
@@ -1364,6 +1366,8 @@ if (
     nombreCapsDemiTour >=
     NB_CAPS_CONFIRMATION_DEMI_TOUR
 ) {
+
+    // Déclencher le mode demi-tour 
     // Le signe de la rotation détermine
     // le sens du demi-tour.
     const rotationSignee =
@@ -1381,6 +1385,8 @@ if (
         sensDemiTour = sensCandidatDemiTour;
 
         modeGuidage = MODE_DEMI_TOUR;
+
+// déterminer la ligne cible
 
         if (modeReference === "bord") {
             ligneCible = ligne + 1;
