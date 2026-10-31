@@ -16,7 +16,7 @@ let largeurTravail = 20;
 let modeReference = "bord";
 
 let ecart = 0;
-let ecartLigne = 0;
+let ecartTracLigne = 0;
 
 let pointA = null;
 let pointB = null;
@@ -54,6 +54,7 @@ let nombreCapsDemiTour = 0;
 const NB_CAPS_CONFIRMATION_DEMI_TOUR = 3;
 const SEUIL_CAP_DEMI_TOUR = 45;
 
+let premierDemiTour = null; // si premierDemitour est à droite =-1 ; à gauche =+1
 let sensCandidatDemiTour = 0;
 let capPrecedentDemiTour = null;
 let rotationCumuleeDemiTour = 0;
@@ -325,9 +326,9 @@ btnB.addEventListener("click", () => {
         btnB.style.color = "white";
 
         document.getElementById("etatReference").textContent =
-            "A-B: " + "CapAB: " + capAB.toFixed(1) + "° | " +
-            pointsReferenceAB.length + " points | " +
-            longueurAB.toFixed(1) + " m | " + "| σAB : " +
+            "CapAB: " + capAB.toFixed(1) + "° | " +
+            pointsReferenceAB.length + " pts | " +
+            longueurAB.toFixed(1) + " m  " + "| σAB: " +
             sigmaAB.toFixed(2) + " m";
 
         reinitialiserSigma();
@@ -434,21 +435,30 @@ let distanceTracteurAB = 0;
 let distanceCibleCourante = 0;
 let restantDemiTour = 0;
 
+
+
 function calculerGuidage() {
     if (!pointA || !pointB) return;
 
     const distanceLigneCourante = calculerDistanceLigne(ligne);
-    distanceTracteurAB = distanceSigneeAB(tracteurX, tracteurY);
-    ecartLigne = distanceTracteurAB - distanceLigneCourante;
     distanceCibleCourante = calculerDistanceLigne(ligneCible);
+
+    distanceTracteurAB = distanceSigneeAB(tracteurX, tracteurY);
+
+    ecartTracLigne =
+    premierDemiTour !== null
+        ? premierDemiTour *
+          (Math.abs(distanceTracteurAB) - distanceLigneCourante)
+        : 0;
+    
     restantDemiTour = distanceCibleCourante - Math.abs(distanceTracteurAB);
 // ! formule valable en mode 'bord parcelle' ! à étudier en mode 'centre'
 
 
     if (modeGuidage === MODE_TRAVAIL) {
         nombreMesures++;
-        sommeEcarts += ecartLigne;
-        sommeEcartsCarres += ecartLigne * ecartLigne;
+        sommeEcarts += ecartTracLigne;
+        sommeEcartsCarres += ecartTracLigne * ecartTracLigne;
         const moyenne = sommeEcarts / nombreMesures;
         sigmaConduite = Math.sqrt(Math.max(0, sommeEcartsCarres / nombreMesures - moyenne * moyenne));
 
@@ -496,8 +506,9 @@ verrouDemiTourActif = true;
     distanceTracteurAB =
         distanceSigneeAB(tracteurX, tracteurY);
 
-    ecartLigne =
-        distanceTracteurAB - distanceLigneCourante;
+    ecartTracLigne =
+    premierDemiTour *
+    (Math.abs(distanceTracteurAB) - distanceLigneCourante);
 
     reinitialiserSigma();
 }
@@ -621,15 +632,15 @@ else {
                         : "Travail";
 
         document.getElementById("etatGuidage").textContent =
-            messageGuidage + " — ligne cible " + ligneCible +
+            messageGuidage + " — L.cible " + ligneCible +
             " | D.Trac=" + distanceTracteurAB.toFixed(1) +
             " | D.Cible=" + distanceCibleCourante.toFixed(1) +
-            " | Restant=" + restantDemiTour.toFixed(1);
+            " | Restant= " + restantDemiTour.toFixed(1);
     }
 
    
     document.getElementById("debugEcart").textContent =
-        "Écart = " + ecartLigne.toFixed(2) + " m";
+        "Écart = " + ecartTracLigne.toFixed(2) + " m";
     
 
 // affichage tracteur en mode travail
@@ -643,7 +654,7 @@ document.getElementById("sigma").textContent =
     " m";
 
 // Saturation visuelle à ±3 m
-const ecartAffichage = Math.max(-3, Math.min(3, ecartLigne));
+const ecartAffichage = Math.max(-3, Math.min(3, ecartTracLigne));
 
 // 3 m = 35 % de déplacement visuel
 const decalage = (ecartAffichage / 3) * 35;
@@ -652,7 +663,7 @@ const positionTracteur = centre + decalage;
 
 tracteur.style.left = positionTracteur + "%";
 
-    if (Math.abs(ecartLigne) < 0.2) {
+    if (Math.abs(ecartTracLigne) < 0.2) {
 
         document.getElementById("imageTracteur").src = "tracteur_vert.svg";
 
@@ -661,7 +672,7 @@ tracteur.style.left = positionTracteur + "%";
     }
     else {
 
-        const erreur = Math.abs(ecartLigne);
+        const erreur = Math.abs(ecartTracLigne);
 
 if (erreur < 1) {
 
@@ -688,7 +699,7 @@ else {
 
 let positionTexte;
 
-if (ecartLigne > 0) {
+if (ecartTracLigne > 0) {
 
     positionTexte = positionTracteur - 10;
 
@@ -703,15 +714,15 @@ positionTexte = Math.max(5, Math.min(68, positionTexte));
 
 ecartTexte.style.left = positionTexte + "%";
 
-        if (ecartLigne > 0) {
+        if (ecartTracLigne > 0) {
 
             ecartTexte.innerHTML =
-                "← " + ecartLigne.toFixed(2) + " m";
+                "← " + ecartTracLigne.toFixed(2) + " m";
         }
         else {
 
             ecartTexte.innerHTML =
-                Math.abs(ecartLigne).toFixed(2) + " m →";
+                Math.abs(ecartTracLigne).toFixed(2) + " m →";
         }
     }
 
@@ -1044,7 +1055,7 @@ function afficherEtatReference() {
             ligne * largeurTravail;
     }
 
-    ecartLigne =
+    ecartTracLigne =
         distanceTracteur -
         distanceLigne;
 
@@ -1072,7 +1083,7 @@ function afficherEtatReference() {
 
         " m | Écart : " +
 
-        ecartLigne.toFixed(2) +
+        ecartTracLigne.toFixed(2) +
 
         " m | Mode : " +
 
@@ -1383,6 +1394,12 @@ if (
                 : DEMI_TOUR_GAUCHE;
 
         sensDemiTour = sensCandidatDemiTour;
+
+        // Mémoriser le sens du premier demi-tour
+if (premierDemiTour === null) {
+    premierDemiTour =
+        sensDemiTour === DEMI_TOUR_DROITE ? -1 : +1;
+}
 
         modeGuidage = MODE_DEMI_TOUR;
 
