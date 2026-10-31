@@ -632,10 +632,10 @@ else {
                         : "Travail";
 
         document.getElementById("etatGuidage").textContent =
-            messageGuidage + " — L.cible " + ligneCible +
+            messageGuidage +
             " | D.Trac=" + distanceTracteurAB.toFixed(1) +
             " | D.Cible=" + distanceCibleCourante.toFixed(1) +
-            " | Restant= " + restantDemiTour.toFixed(1);
+            " | Reste= " + restantDemiTour.toFixed(1) + " vers L.cible " + ligneCible;
     }
 
    
