@@ -635,7 +635,8 @@ else {
             messageGuidage +
             " | D.Trac=" + distanceTracteurAB.toFixed(1) +
             " | D.Cible=" + distanceCibleCourante.toFixed(1) +
-            " | Reste= " + restantDemiTour.toFixed(1) + " vers L.cible " + ligneCible;
+            " | Reste= " + restantDemiTour.toFixed(1) + 
+            " vers L.cible " + ligneCible;
     }
 
    
@@ -740,63 +741,74 @@ if (
     modeGuidage === MODE_RACCROCHAGE
 );
 
-        // Orientation GPS réelle pendant le demi-tour
-    // et le raccrochage uniquement
-    
- // Orientation GPS réelle uniquement en mode Raccrochage
-if (
+   
+// ORIENTATION DU TRACTEUR EN DEMI-TOUR ET RACCROCHAGE
+
+if (modeGuidage === MODE_DEMI_TOUR) {
+
+    // Orientation horizontale vers la ligne cible
+    if (sensDemiTour === DEMI_TOUR_DROITE) {
+        tracteur.style.setProperty("--angle-tracteur", "90deg");
+    } else {
+        tracteur.style.setProperty("--angle-tracteur", "-90deg");
+    }
+
+}
+else if (
     modeGuidage === MODE_RACCROCHAGE &&
     Number.isFinite(capTracteur) &&
     Number.isFinite(capAB)
 ) {
 
-        let angleRelatif =
-            differenceAngulaire(capTracteur, capAB);
+    // Orientation GPS réelle pendant le raccrochage
+    let angleRelatif =
+        differenceAngulaire(capTracteur, capAB);
 
-        // Le tracteur peut suivre l'axe dans les deux sens
-        if (angleRelatif > 90) {
-            angleRelatif -= 180;
-        } else if (angleRelatif < -90) {
-            angleRelatif += 180;
-        }
-
-        // Le tracteur est dessiné horizontalement dans ces modes
-        tracteur.style.setProperty(
-            "--angle-tracteur",
-            angleRelatif + "deg"
-        );
-
-        
-        // Affichage de l'écart angulaire dans la ZDG
-        const angleRaccrochage =
-            document.getElementById("angleRaccrochage");
-
-        const capCible = (capAB + 180) % 360;
-
-        const ecartCapCible = differenceAngulaire(
-            capTracteur,
-            capCible
-        );
-
-        angleRaccrochage.textContent =
-            "Écart angulaire : " +
-            ecartCapCible.toFixed(0) +
-            "°";
-
-        angleRaccrochage.style.display = "block";
-
-        document.getElementById("debugEcart").textContent =
-            "Écart angulaire : " +
-            ecartCapCible.toFixed(0) +
-            "°";
-
-
-    } else {
-        // Le GPS réel fournit l'orientation ; l'axe visuel est ajusté
-        // en mode raccrochage dans le bloc dédié ci-dessus.
-        tracteur.style.setProperty("--angle-tracteur", "0deg");
+    // Le tracteur peut suivre l'axe dans les deux sens
+    if (angleRelatif > 90) {
+        angleRelatif -= 180;
+    } else if (angleRelatif < -90) {
+        angleRelatif += 180;
     }
 
+    tracteur.style.setProperty(
+        "--angle-tracteur",
+        angleRelatif + "deg"
+    );
+
+    // AFFICHAGE DE L'ÉCART ANGULAIRE DANS LA ZDG
+
+    const angleRaccrochage =
+        document.getElementById("angleRaccrochage");
+
+    const capCible = (capAB + 180) % 360;
+
+    const ecartCapCible = differenceAngulaire(
+        capTracteur,
+        capCible
+    );
+
+    angleRaccrochage.textContent =
+        "Écart angulaire : " +
+        ecartCapCible.toFixed(0) +
+        "°";
+
+    angleRaccrochage.style.display = "block";
+
+    document.getElementById("debugEcart").textContent =
+        "Écart angulaire : " +
+        ecartCapCible.toFixed(0) +
+        "°";
+
+}
+else {
+
+    // Orientation verticale par défaut
+    tracteur.style.setProperty("--angle-tracteur", "0deg");
+
+}
+
+// Masquer l'écart angulaire hors raccrochage
 if (modeGuidage !== MODE_RACCROCHAGE) {
     document.getElementById("angleRaccrochage").style.display = "none";
 }
