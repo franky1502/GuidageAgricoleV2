@@ -810,8 +810,13 @@ else {
 
 // Masquer l'écart angulaire hors raccrochage
 if (modeGuidage !== MODE_RACCROCHAGE) {
-    document.getElementById("angleRaccrochage").style.display = "none";
+    const angleRaccrochage =
+        document.getElementById("angleRaccrochage");
+
+    angleRaccrochage.style.display = "none";
+    angleRaccrochage.textContent = "";
 }
+
 
     if (sensDemiTour === DEMI_TOUR_DROITE) {
     tracteur.style.left = "72%";
@@ -839,13 +844,17 @@ ecartTexte.style.display = "block";
 
 } else {
 
+    // Affichage du tracteur en mode travail
     tracteur.style.width = "30px";
     tracteur.style.height = "60px";
     tracteur.style.top = "180px";
-    tracteur.style.left = "50%";
+
+    // Conserver la position latérale calculée selon l'écart
+    tracteur.style.left = positionTracteur + "%";
+
     tracteur.style.display = "block";
 
-// Orientation habituelle hors demi-tour et raccrochage
+    // Orientation verticale habituelle
     tracteur.style.setProperty("--angle-tracteur", "0deg");
 
 }
