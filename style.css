@@ -38,27 +38,37 @@ h1 {
 
 .parametres {
     display: flex;
-    gap: 10px;
-    margin-top: 15px;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
 }
 
 .parametres > div {
-    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .parametres label {
-    display: block;
-    text-align: center;
+    display: inline-block;
+    white-space: nowrap;
     font-weight: bold;
-    margin-bottom: 5px;
+    margin: 0;
+    font-size: 13px;
 }
 
-input[type=number] {
-    width: 100%;
+.parametres input[type=number] {
+    width: 55px;
     box-sizing: border-box;
-    padding: 10px;
-    font-size: 20px;
+    padding: 4px;
+    font-size: 16px;
+    text-align: center;
 }
+
+.parametres span {
+    font-size: 13px;
+}
+
 
 /* ---------- Boutons ---------- */
 
