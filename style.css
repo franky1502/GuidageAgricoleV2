@@ -449,3 +449,13 @@ button {
     font-weight: bold;
     white-space: nowrap;
 }
+
+.fleche-ecart {
+    font-size: 52px;
+    font-weight: 900;
+    font-family: Arial, sans-serif;
+    vertical-align: middle;
+    display: inline-block;
+    line-height: 1;
+    -webkit-text-stroke: 1.5px currentColor;
+}

@@ -469,7 +469,7 @@ function calculerGuidage() {
         }
     }
 
-    if (modeGuidage === MODE_DEMI_TOUR && Math.abs(restantDemiTour) < 4) {
+    if (modeGuidage === MODE_DEMI_TOUR && Math.abs(restantDemiTour) < 6) {
         modeGuidage = MODE_RACCROCHAGE;
     }
 
@@ -717,14 +717,18 @@ ecartTexte.style.left = positionTexte + "%";
 
         if (ecartTracLigne > 0) {
 
-            ecartTexte.innerHTML =
-                "← " + ecartTracLigne.toFixed(2) + " m";
-        }
-        else {
+    ecartTexte.innerHTML =
+        "<span class='fleche-ecart'>←</span> " +
+        ecartTracLigne.toFixed(2);
 
-            ecartTexte.innerHTML =
-                Math.abs(ecartTracLigne).toFixed(2) + " m →";
-        }
+}
+else {
+
+    ecartTexte.innerHTML =
+        Math.abs(ecartTracLigne).toFixed(2) +
+        " <span class='fleche-ecart'>→</span>";
+
+}
     }
 
 if (
